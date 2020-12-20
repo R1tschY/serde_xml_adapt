@@ -58,8 +58,13 @@ where
                 .push_attribute((&key[1..], &attribute_value as &str));
             self.buffer.clear();
         } else {
+            let root = if key.starts_with("$") {
+                None
+            } else {
+                Some(key)
+            };
             let mut writer = Writer::new(&mut self.buffer);
-            let mut serializer = Serializer::new_with_root(&mut writer, Some(key));
+            let mut serializer = Serializer::new_with_root(&mut writer, root);
             value.serialize(&mut serializer)?;
 
             self.children.append(&mut self.buffer);

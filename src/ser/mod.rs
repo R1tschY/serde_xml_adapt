@@ -957,4 +957,81 @@ mod tests {
             }
         }
     }
+
+    mod inline_content {
+        use super::*;
+
+        #[test]
+        fn string_content() {
+            #[derive(Serialize)]
+            struct Node {
+                #[serde(rename = "@attr")]
+                attr: i32,
+                #[serde(rename = "$")]
+                content: i32,
+            }
+
+            let node = Node {
+                attr: 42,
+                content: 5,
+            };
+            assert_eq!(
+                to_string_with_root(&node, "root").unwrap(),
+                r#"<root attr="42">5</root>"#
+            );
+        }
+
+        #[test]
+        fn multiple_string_content() {
+            #[derive(Serialize)]
+            struct Node {
+                #[serde(rename = "@attr")]
+                attr: i32,
+                #[serde(rename = "$")]
+                chars1: i32,
+                tagged1: i32,
+                #[serde(rename = "$")]
+                chars2: i32,
+                tagged2: i32,
+                #[serde(rename = "$")]
+                chars3: Vec<i32>,
+            }
+
+            let node = Node {
+                attr: 42,
+                chars1: 5,
+                tagged1: 1,
+                chars2: 5,
+                tagged2: 1,
+                chars3: vec![34, 45],
+            };
+            assert_eq!(
+                to_string_with_root(&node, "root").unwrap(),
+                r#"<root attr="42">5<tagged1>1</tagged1>5<tagged2>1</tagged2>3445</root>"#
+            );
+        }
+
+        #[test]
+        fn attributes() {
+            #[derive(Serialize)]
+            struct Nested {
+                #[serde(rename = "@attr")]
+                attr: i32,
+            }
+
+            #[derive(Serialize)]
+            struct Node {
+                #[serde(rename = "$")]
+                nested: Nested,
+            }
+
+            let node = Node {
+                nested: Nested { attr: 42 },
+            };
+            assert_eq!(
+                to_string_with_root(&node, "root").unwrap(),
+                r#"<root><Nested attr="42"/></root>"#
+            );
+        }
+    }
 }
