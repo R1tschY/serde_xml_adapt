@@ -1034,4 +1034,44 @@ mod tests {
             );
         }
     }
+
+    mod optional {
+        use super::*;
+
+        #[derive(Serialize)]
+        struct Node {
+            #[serde(rename = "@attr")]
+            attr: Option<i32>,
+        }
+
+        #[test]
+        fn some() {
+            assert_eq!(
+                to_string_with_root(&Some(42), "root").unwrap(),
+                r#"<root>42</root>"#
+            );
+        }
+
+        #[test]
+        fn none() {
+            let x: Option<i32> = None;
+            assert_eq!(to_string_with_root(&x, "root").unwrap(), r#""#);
+        }
+
+        #[test]
+        fn attribute_some() {
+            assert_eq!(
+                to_string_with_root(&Node { attr: Some(42) }, "root").unwrap(),
+                r#"<root attr="42"/>"#
+            );
+        }
+
+        #[test]
+        fn attribute_none() {
+            assert_eq!(
+                to_string_with_root(&Node { attr: None }, "root").unwrap(),
+                r#"<root/>"#
+            );
+        }
+    }
 }

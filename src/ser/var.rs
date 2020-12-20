@@ -54,8 +54,10 @@ where
 
             let mut serializer = AttributeSerializer::new();
             let attribute_value = value.serialize(&mut serializer)?;
-            self.attrs
-                .push_attribute((&key[1..], &attribute_value as &str));
+            if let Some(attribute_value) = attribute_value {
+                self.attrs
+                    .push_attribute((&key[1..], &attribute_value as &str));
+            }
             self.buffer.clear();
         } else {
             let root = if key.starts_with("$") {
@@ -155,8 +157,15 @@ where
         key: &K,
         value: &V,
     ) -> Result<(), DeError> {
+        // TODO: use own TagSerializer
         let tag = key.serialize(&mut AttributeSerializer::new())?;
-        self.serialize_tag(&tag, value)
+        if let Some(tag) = tag {
+            self.serialize_tag(&tag, value)
+        } else {
+            Err(DeError::Custom(
+                "Option as map key not supported".to_string(),
+            ))
+        }
     }
 
     fn end(mut self) -> Result<Self::Ok, DeError> {
