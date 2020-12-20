@@ -1,0 +1,13 @@
+[package]
+name = "serde_xml_adapt"
+description = "Customizable serialisation for XML"
+version = "0.1.0"
+authors = ["R1tschY <r1tschy@posteo.de>"]
+edition = "2018"
+
+[dependencies]
+serde = "1"
+quick-xml = { version = "0.20.0", default-features = false }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
