@@ -111,16 +111,7 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
             BytesText::from_plain(&value)
         };
 
-        if let Some(root) = self.root_tag {
-            self.writer
-                .write_event(Event::Start(BytesStart::borrowed_name(root.as_bytes())))?;
-            self.writer.write_event(Event::Text(event))?;
-            self.writer
-                .write_event(Event::End(BytesEnd::borrowed(root.as_bytes())))?;
-        } else {
-            self.writer.write_event(Event::Text(event))?;
-        }
-        Ok(())
+        self.render_tag_around(|writer| Ok(writer.write_event(Event::Text(event))?))
     }
 
     /// Writes self-closed tag `<tag_name/>` into inner writer
@@ -128,6 +119,31 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
         self.writer
             .write_event(Event::Empty(BytesStart::borrowed_name(tag_name.as_bytes())))?;
         Ok(())
+    }
+
+    fn render_tag_around(
+        &mut self,
+        f: impl FnOnce(&mut Writer<W>) -> Result<(), DeError>,
+    ) -> Result<(), DeError> {
+        if let Some(root) = self.root_tag {
+            self.write_tag_start(root)?;
+            f(self.writer)?;
+            self.write_tag_end(root)
+        } else {
+            f(self.writer)
+        }
+    }
+
+    fn write_tag_start(&mut self, tag: &str) -> Result<(), DeError> {
+        Ok(self
+            .writer
+            .write_event(Event::Start(BytesStart::borrowed_name(tag.as_bytes())))?)
+    }
+
+    fn write_tag_end(&mut self, tag: &str) -> Result<(), DeError> {
+        Ok(self
+            .writer
+            .write_event(Event::End(BytesEnd::borrowed(tag.as_bytes())))?)
     }
 }
 
@@ -233,7 +249,10 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         _variant_index: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, DeError> {
-        self.write_self_closed(self.root_tag.unwrap_or(variant))
+        self.render_tag_around(|writer| {
+            writer.write_event(Event::Empty(BytesStart::borrowed_name(variant.as_bytes())))?;
+            Ok(())
+        })
     }
 
     fn serialize_newtype_struct<T: ?Sized + Serialize>(
@@ -251,9 +270,10 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, DeError> {
-        let mut serializer =
-            Serializer::new_with_root(self.writer, Some(self.root_tag.unwrap_or(variant)));
-        value.serialize(&mut serializer)
+        self.render_tag_around(|writer| {
+            let mut serializer = Serializer::new_with_root(writer, Some(variant));
+            value.serialize(&mut serializer)
+        })
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, DeError> {
@@ -279,6 +299,10 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant, DeError> {
+        if let Some(root) = self.root_tag {
+            self.write_tag_start(root)?;
+        }
+
         Ok(Seq::new(self))
     }
 
@@ -301,7 +325,11 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, DeError> {
-        Ok(Struct::new(self, self.root_tag.unwrap_or(variant)))
+        if let Some(root) = self.root_tag {
+            self.write_tag_start(root)?;
+        }
+
+        Ok(Struct::new(self, variant))
     }
 }
 
@@ -411,24 +439,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(actual, "<root><name>Bob</name><age>5</age></root>");
-    }
-
-    #[test]
-    fn test_serialize_enum() {
-        #[derive(Serialize)]
-        #[allow(unused)]
-        enum Node {
-            Boolean(bool),
-            Number(f64),
-            String(String),
-        }
-
-        let node = Node::Boolean(true);
-
-        assert_eq!(
-            to_string_with_root(&node, "root").unwrap(),
-            "<root>true</root>"
-        );
     }
 
     #[test]
@@ -568,14 +578,17 @@ mod tests {
 
             #[test]
             fn unit() {
-                assert_eq!(to_string_with_root(&Node::Unit, "root").unwrap(), "<root/>");
+                assert_eq!(
+                    to_string_with_root(&Node::Unit, "root").unwrap(),
+                    "<root><Unit/></root>"
+                );
             }
 
             #[test]
             fn newtype() {
                 assert_eq!(
                     to_string_with_root(&Node::Newtype(true), "root").unwrap(),
-                    "<root>true</root>"
+                    "<root><Newtype>true</Newtype></root>"
                 );
             }
 
@@ -588,17 +601,18 @@ mod tests {
 
                 assert_eq!(
                     to_string_with_root(&node, "root").unwrap(),
-                    r#"<root><float>42</float><string>answer</string></root>"#
+                    r#"<root><Struct><float>42</float><string>answer</string></Struct></root>"#
                 );
             }
 
             #[test]
+            #[ignore]
             fn tuple_struct() {
                 let node = Node::Tuple(42.0, "answer".to_string());
 
                 assert_eq!(
                     to_string_with_root(&node, "root").unwrap(),
-                    r#"<root>42</root><root>answer</root>"#
+                    r#"<root><Tuple>42</Tuple><Tuple>answer</Tuple></root>"#
                 );
             }
 
@@ -611,7 +625,7 @@ mod tests {
 
                 assert_eq!(
                     to_string_with_root(&node, "root").unwrap(),
-                    r#"<root><nested><float>42</float></nested><string>answer</string></root>"#
+                    r#"<root><Holder><nested><float>42</float></nested><string>answer</string></Holder></root>"#
                 );
             }
 
@@ -624,7 +638,7 @@ mod tests {
 
                 assert_eq!(
                     to_string_with_root(&node, "root").unwrap(),
-                    r#"<root><float>42</float><string>answer</string></root>"#
+                    r#"<root><Flatten><float>42</float><string>answer</string></Flatten></root>"#
                 );
             }
         }
@@ -887,6 +901,58 @@ mod tests {
                 assert_eq!(
                     to_string_with_root(&node, "root").unwrap(),
                     r#"<root><float>42</float><string>answer</string></root>"#
+                );
+            }
+        }
+
+        mod without_attrs {
+            use super::*;
+
+            #[test]
+            fn internally_tagged() {
+                #[derive(Serialize)]
+                #[serde(tag = "tag")]
+                enum InternallyTagged {
+                    #[serde(rename = "flatten")]
+                    Flatten {
+                        #[serde(flatten)]
+                        nested: Nested,
+                        string: String,
+                    },
+                }
+
+                let node = InternallyTagged::Flatten {
+                    nested: Nested { float: 42.0 },
+                    string: "answer".to_string(),
+                };
+
+                assert_eq!(
+                    to_string_with_root(&node, "root").unwrap(),
+                    r#"<root><tag>flatten</tag><float>42</float><string>answer</string></root>"#
+                );
+            }
+
+            #[test]
+            fn adjacently_tagged() {
+                #[derive(Serialize)]
+                #[serde(tag = "tag", content = "content")]
+                enum AdjacentlyTagged {
+                    #[serde(rename = "flatten")]
+                    Flatten {
+                        #[serde(flatten)]
+                        nested: Nested,
+                        string: String,
+                    },
+                }
+
+                let node = AdjacentlyTagged::Flatten {
+                    nested: Nested { float: 42.0 },
+                    string: "answer".to_string(),
+                };
+
+                assert_eq!(
+                    to_string_with_root(&node, "root").unwrap(),
+                    r#"<root><tag>flatten</tag><content><float>42</float><string>answer</string></content></root>"#
                 );
             }
         }

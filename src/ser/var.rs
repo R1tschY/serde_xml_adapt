@@ -67,17 +67,14 @@ where
         Ok(())
     }
 
-    fn close(self) -> Result<(), DeError> {
+    fn close(&mut self) -> Result<(), DeError> {
+        let writer = &mut self.parent.writer;
         if self.children.is_empty() {
-            self.parent.writer.write_event(Event::Empty(self.attrs))?;
+            writer.write_event(Event::Empty(self.attrs.to_borrowed()))?;
         } else {
-            self.parent
-                .writer
-                .write_event(Event::Start(self.attrs.to_borrowed()))?;
-            self.parent.writer.write(&self.children)?;
-            self.parent
-                .writer
-                .write_event(Event::End(self.attrs.to_end()))?;
+            writer.write_event(Event::Start(self.attrs.to_borrowed()))?;
+            writer.write(&self.children)?;
+            writer.write_event(Event::End(self.attrs.to_end()))?;
         }
         Ok(())
     }
@@ -98,7 +95,7 @@ where
         self.serialize_tag(key, value)
     }
 
-    fn end(self) -> Result<Self::Ok, DeError> {
+    fn end(mut self) -> Result<Self::Ok, DeError> {
         self.close()
     }
 }
@@ -120,8 +117,14 @@ where
     }
 
     #[inline]
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        self.close()
+    fn end(mut self) -> Result<Self::Ok, Self::Error> {
+        self.close()?;
+
+        if let Some(root) = self.parent.root_tag {
+            self.parent.write_tag_end(root)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -151,7 +154,7 @@ where
         self.serialize_tag(&tag, value)
     }
 
-    fn end(self) -> Result<Self::Ok, DeError> {
+    fn end(mut self) -> Result<Self::Ok, DeError> {
         self.close()
     }
 }
@@ -259,6 +262,10 @@ where
 
     #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(())
+        if let Some(root) = self.parent.root_tag {
+            self.parent.write_tag_end(root)
+        } else {
+            Ok(())
+        }
     }
 }
