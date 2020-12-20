@@ -31,7 +31,6 @@ where
 {
     /// Create a new `Struct`
     pub fn new(parent: &'w mut Serializer<'r, 'a, W>, name: &'w str) -> Self {
-        println!("STRUCT START: {}", &name);
         let name = name.as_bytes();
         Struct {
             parent,
@@ -69,10 +68,6 @@ where
     }
 
     fn close(self) -> Result<(), DeError> {
-        println!(
-            "STRUCT END: {}",
-            std::str::from_utf8(&self.attrs.name()).unwrap()
-        );
         if self.children.is_empty() {
             self.parent.writer.write_event(Event::Empty(self.attrs))?;
         } else {

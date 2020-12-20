@@ -104,7 +104,6 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
         value: P,
         escaped: bool,
     ) -> Result<(), DeError> {
-        println!("PRIMITIVE: {:?} {}", &self.root_tag, &value);
         let value = value.to_string().into_bytes();
         let event = if escaped {
             BytesText::from_escaped(value)
