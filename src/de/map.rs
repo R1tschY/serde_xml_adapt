@@ -1,12 +1,14 @@
 //! Serde `Deserializer` module
 
+use std::io::BufRead;
+
+use quick_xml::events::{BytesStart, Event};
+use serde::de::{self, DeserializeSeed, IntoDeserializer};
+
 use crate::{
     de::error::DeError,
     de::{escape::EscapedDeserializer, Deserializer, INNER_VALUE},
 };
-use quick_xml::events::{attributes::Attribute, BytesStart, Event};
-use serde::de::{self, DeserializeSeed, IntoDeserializer};
-use std::io::BufRead;
 
 enum MapValue {
     Empty,
@@ -18,32 +20,42 @@ enum MapValue {
 /// A deserializer for `Attributes`
 pub(crate) struct MapAccess<'a, R: BufRead> {
     /// Tag -- owner of attributes
-    start: BytesStart<'static>,
+    _start: BytesStart<'static>,
     de: &'a mut Deserializer<R>,
-    /// Position in flat byte slice of all attributes from which next
-    /// attribute should be parsed. This field is required because we
-    /// do not store reference to `Attributes` itself but instead create
-    /// a new object on each advance of `Attributes` iterator, so we need
-    /// to restore last position before advance.
-    // position: usize,
+    attributes: Vec<(Vec<u8>, Vec<u8>)>,
+    attributes_pos: usize,
     value: MapValue,
 }
 
 impl<'a, R: BufRead> MapAccess<'a, R> {
     /// Create a new MapAccess
     pub fn new(de: &'a mut Deserializer<R>, start: BytesStart<'static>) -> Result<Self, DeError> {
+        // TODO: optimize copies!
+        let attributes = start
+            .attributes()
+            .map(|a| {
+                let a = a?;
+                Ok((a.key.to_owned(), a.value.into_owned()))
+            })
+            .collect::<Result<Vec<(Vec<u8>, Vec<u8>)>, DeError>>()?;
         Ok(MapAccess {
             de,
-            start,
+            _start: start,
+            attributes,
+            attributes_pos: 0,
             value: MapValue::Empty,
         })
     }
 
-    fn next_attr(&mut self) -> Result<Option<Attribute>, DeError> {
-        // TODO: wrong
-        let mut attributes = self.start.attributes();
-        let next_att = attributes.next();
-        Ok(next_att.transpose()?)
+    fn next_attr(&mut self) -> Option<(Vec<u8>, Vec<u8>)> {
+        // TODO: optimize copies!
+        if self.attributes_pos < self.attributes.len() {
+            let result = Some(self.attributes[self.attributes_pos].clone());
+            self.attributes_pos += 1;
+            result
+        } else {
+            None
+        }
     }
 }
 
@@ -54,9 +66,7 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Self::Error> {
-        let attr_key_val = self
-            .next_attr()?
-            .map(|a| (a.key.to_owned(), a.value.into_owned()));
+        let attr_key_val = self.next_attr();
         let has_value_field = self.de.has_value_field;
         if let Some((key, value)) = attr_key_val {
             // try getting map from attributes (key= "value")
