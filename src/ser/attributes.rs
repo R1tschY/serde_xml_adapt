@@ -1,4 +1,4 @@
-use crate::ser::error::DeError;
+use crate::ser::error::SerError;
 use crate::ser::nonser::NonSerializer;
 use serde::{serde_if_integer128, Serialize};
 use std::fmt::Display;
@@ -13,7 +13,7 @@ impl AttributeSerializer {
 
 impl<'a> serde::Serializer for &'a mut AttributeSerializer {
     type Ok = Option<String>;
-    type Error = DeError;
+    type Error = SerError;
     type SerializeSeq = NonSerializer<Self::Ok, Self::Error>;
     type SerializeTuple = NonSerializer<Self::Ok, Self::Error>;
     type SerializeTupleStruct = NonSerializer<Self::Ok, Self::Error>;
@@ -111,9 +111,9 @@ impl<'a> serde::Serializer for &'a mut AttributeSerializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        unimplemented!()
+        Ok(Some(variant.to_string()))
     }
 
     fn serialize_newtype_struct<T: ?Sized>(

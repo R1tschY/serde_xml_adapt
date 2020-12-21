@@ -11,3 +11,4 @@ quick-xml = { version = "0.20.0", default-features = false }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
+serde-value = "0.7"
