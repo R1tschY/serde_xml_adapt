@@ -598,8 +598,8 @@ mod tests {
                         fmt.write_str("byte data")
                     }
 
-                    fn visit_byte_buf<E: de::Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
-                        Ok(Item { bytes: v })
+                    fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
+                        Ok(Item { bytes: v.to_vec() })
                     }
                 }
 
