@@ -422,7 +422,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::Deserialize;
+    use serde_derive::Deserialize;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Item {
@@ -586,6 +586,8 @@ mod tests {
 
     #[test]
     fn deserialize_bytes() {
+        use serde::Deserialize;
+
         #[derive(Debug, PartialEq)]
         struct Item {
             bytes: Vec<u8>,

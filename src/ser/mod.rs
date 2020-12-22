@@ -336,7 +336,8 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
 #[cfg(test)]
 mod tests {
     use serde::ser::SerializeMap;
-    use serde::{Serialize, Serializer as SerSerializer};
+    use serde::Serializer as SerSerializer;
+    use serde_derive::Serialize;
 
     use super::*;
 

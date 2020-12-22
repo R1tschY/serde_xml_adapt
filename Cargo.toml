@@ -6,9 +6,9 @@ authors = ["R1tschY <r1tschy@posteo.de>"]
 edition = "2018"
 
 [dependencies]
-serde = "1"
+serde = "1.0"
 quick-xml = { version = "0.20.0", default-features = false }
 
 [dev-dependencies]
-serde = { version = "1", features = ["derive"] }
+serde_derive = "1.0"
 serde-value = "0.7"
