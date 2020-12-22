@@ -36,10 +36,7 @@ impl<'a, R: BufRead> SeqAccess<'a, R> {
             Names::Unknown
         } else {
             if let Some(Event::Start(e)) = de.peek()? {
-                #[cfg(not(feature = "encoding"))]
                 let name = decoder.decode(e.name())?.to_owned();
-                #[cfg(feature = "encoding")]
-                let name = decoder.decode(e.name()).into_owned();
                 Names::Peek(name)
             } else {
                 Names::Unknown

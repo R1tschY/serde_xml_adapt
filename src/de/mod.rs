@@ -246,13 +246,7 @@ macro_rules! deserialize_type {
     ($deserialize:ident => $visit:ident) => {
         fn $deserialize<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
             let txt = self.next_text()?;
-
-            #[cfg(not(feature = "encoding"))]
             let value = self.reader.decode(&*txt)?.parse()?;
-
-            #[cfg(feature = "encoding")]
-            let value = self.reader.decode(&*txt).parse()?;
-
             visitor.$visit(value)
         }
     };
@@ -268,12 +262,11 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         visitor: V,
     ) -> Result<V::Value, DeError> {
         if let Some(e) = self.next_start(&mut Vec::new())? {
-            let name = e.name().to_vec();
             self.has_value_field = fields.contains(&INNER_VALUE);
-            let map = map::MapAccess::new(self, e)?;
+            let map = map::MapAccess::new(self, &e)?;
             let value = visitor.visit_map(map)?;
             self.has_value_field = false;
-            self.read_to_end(&name)?;
+            self.read_to_end(&e.name())?;
             Ok(value)
         } else {
             Err(DeError::Start)
@@ -323,6 +316,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
     }
 
     fn deserialize_bytes<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+        // TODO: does it make sense? to get escaped content -> base64 or hex / error?
         let text = self.next_text()?;
         let value = text.escaped();
         visitor.visit_bytes(value)
@@ -352,6 +346,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, DeError> {
+        // TODO: can be optimized
         self.deserialize_tuple(1, visitor)
     }
 
@@ -434,7 +429,9 @@ mod tests {
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Item {
+        #[serde(rename = "@name")]
         name: String,
+        #[serde(rename = "@source")]
         source: String,
     }
 
@@ -481,6 +478,13 @@ mod tests {
 
     #[test]
     fn simple_struct_from_attribute_and_child() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Item {
+            #[serde(rename = "@name")]
+            name: String,
+            source: String,
+        }
+
         let s = r##"
 	    <item name="hello">
             <source>world.rs</source>
@@ -500,6 +504,7 @@ mod tests {
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Project {
+        #[serde(rename = "@name")]
         name: String,
 
         #[serde(rename = "item", default)]
@@ -538,7 +543,12 @@ mod tests {
     #[derive(Debug, Deserialize, PartialEq)]
     enum MyEnum {
         A(String),
-        B { name: String, flag: bool },
+        B {
+            #[serde(rename = "@name")]
+            name: String,
+            #[serde(rename = "@flag")]
+            flag: bool,
+        },
         C,
     }
 
@@ -555,7 +565,7 @@ mod tests {
         let s = r##"
         <enums>
             <A>test</A>
-            <B name="hello" flag="t" />
+            <B name="hello" flag="true" />
             <C />
         </enums>
         "##;
@@ -705,14 +715,14 @@ mod tests {
     mod struct_ {
         use super::*;
 
-        #[derive(Debug, Deserialize, PartialEq)]
-        struct Struct {
-            float: f64,
-            string: String,
-        }
-
         #[test]
         fn elements() {
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Struct {
+                float: f64,
+                string: String,
+            }
+
             let data: Struct =
                 from_str(r#"<root><float>42</float><string>answer</string></root>"#).unwrap();
             assert_eq!(
@@ -726,6 +736,14 @@ mod tests {
 
         #[test]
         fn attributes() {
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Struct {
+                #[serde(rename = "@float")]
+                float: f64,
+                #[serde(rename = "@string")]
+                string: String,
+            }
+
             let data: Struct = from_str(r#"<root float="42" string="answer"/>"#).unwrap();
             assert_eq!(
                 data,
@@ -740,19 +758,19 @@ mod tests {
     mod nested_struct {
         use super::*;
 
-        #[derive(Debug, Deserialize, PartialEq)]
-        struct Struct {
-            nested: Nested,
-            string: String,
-        }
-
-        #[derive(Debug, Deserialize, PartialEq)]
-        struct Nested {
-            float: f32,
-        }
-
         #[test]
         fn elements() {
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Struct {
+                nested: Nested,
+                string: String,
+            }
+
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Nested {
+                float: f32,
+            }
+
             let data: Struct = from_str(
                 r#"<root><string>answer</string><nested><float>42</float></nested></root>"#,
             )
@@ -768,6 +786,19 @@ mod tests {
 
         #[test]
         fn attributes() {
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Struct {
+                nested: Nested,
+                #[serde(rename = "@string")]
+                string: String,
+            }
+
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Nested {
+                #[serde(rename = "@float")]
+                float: f32,
+            }
+
             let data: Struct =
                 from_str(r#"<root string="answer"><nested float="42"/></root>"#).unwrap();
             assert_eq!(
@@ -783,22 +814,22 @@ mod tests {
     mod flatten_struct {
         use super::*;
 
-        #[derive(Debug, Deserialize, PartialEq)]
-        struct Struct {
-            #[serde(flatten)]
-            nested: Nested,
-            string: String,
-        }
-
-        #[derive(Debug, Deserialize, PartialEq)]
-        struct Nested {
-            //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
-            float: String,
-        }
-
         #[test]
         #[ignore = "Prime cause: deserialize_any under the hood + https://github.com/serde-rs/serde/issues/1183"]
         fn elements() {
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Struct {
+                #[serde(flatten)]
+                nested: Nested,
+                string: String,
+            }
+
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Nested {
+                //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
+                float: String,
+            }
+
             let data: Struct =
                 from_str(r#"<root><float>42</float><string>answer</string></root>"#).unwrap();
             assert_eq!(
@@ -812,6 +843,21 @@ mod tests {
 
         #[test]
         fn attributes() {
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Struct {
+                #[serde(flatten)]
+                nested: Nested,
+                #[serde(rename = "@string")]
+                string: String,
+            }
+
+            #[derive(Debug, Deserialize, PartialEq)]
+            struct Nested {
+                //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
+                #[serde(rename = "@float")]
+                float: String,
+            }
+
             let data: Struct = from_str(r#"<root float="42" string="answer"/>"#).unwrap();
             assert_eq!(
                 data,
@@ -825,6 +871,30 @@ mod tests {
 
     mod enum_ {
         use super::*;
+
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Nested {
+            //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
+            float: String,
+        }
+
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct NestedAttrs {
+            //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
+            #[serde(rename = "@float")]
+            float: String,
+        }
+
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct NewtypeContent {
+            value: bool,
+        }
+
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct NewtypeContentAttrs {
+            #[serde(rename = "@value")]
+            value: bool,
+        }
 
         mod externally_tagged {
             use super::*;
@@ -851,9 +921,28 @@ mod tests {
             }
 
             #[derive(Debug, Deserialize, PartialEq)]
-            struct Nested {
-                //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
-                float: String,
+            enum NodeAttrs {
+                Unit,
+                Newtype(bool),
+                //TODO: serde bug https://github.com/serde-rs/serde/issues/1904
+                // Tuple(f64, String),
+                Struct {
+                    #[serde(rename = "@float")]
+                    float: f64,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Holder {
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Flatten {
+                    #[serde(flatten)]
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
             }
 
             /// Workaround for serde bug https://github.com/serde-rs/serde/issues/1904
@@ -899,10 +988,11 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(r#"<Struct float="42" string="answer"/>"#).unwrap();
+                    let data: NodeAttrs =
+                        from_str(r#"<Struct float="42" string="answer"/>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Struct {
+                        NodeAttrs::Struct {
                             float: 42.0,
                             string: "answer".into()
                         }
@@ -929,13 +1019,13 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node =
+                    let data: NodeAttrs =
                         from_str(r#"<Holder string="answer"><nested float="42"/></Holder>"#)
                             .unwrap();
                     assert_eq!(
                         data,
-                        Node::Holder {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Holder {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -962,11 +1052,12 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(r#"<Flatten float="42" string="answer"/>"#).unwrap();
+                    let data: NodeAttrs =
+                        from_str(r#"<Flatten float="42" string="answer"/>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Flatten {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Flatten {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -986,29 +1077,49 @@ mod tests {
                 // Tuple(f64, String),// Tuples are not supported in the internally tagged mode
                 //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
                 Struct {
+                    #[serde(rename = "@float")]
                     float: String,
+                    #[serde(rename = "@string")]
                     string: String,
                 },
                 Holder {
                     nested: Nested,
+                    #[serde(rename = "@string")]
                     string: String,
                 },
                 Flatten {
                     #[serde(flatten)]
                     nested: Nested,
+                    #[serde(rename = "@string")]
                     string: String,
                 },
             }
 
             #[derive(Debug, Deserialize, PartialEq)]
-            struct NewtypeContent {
-                value: bool,
-            }
-
-            #[derive(Debug, Deserialize, PartialEq)]
-            struct Nested {
+            #[serde(tag = "@tag")]
+            enum NodeAttrs {
+                Unit,
+                /// Primitives (such as `bool`) are not supported by serde in the internally tagged mode
+                Newtype(NewtypeContentAttrs),
+                // Tuple(f64, String),// Tuples are not supported in the internally tagged mode
                 //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
-                float: String,
+                Struct {
+                    #[serde(rename = "@float")]
+                    float: String,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Holder {
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Flatten {
+                    #[serde(flatten)]
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
             }
 
             mod unit {
@@ -1022,8 +1133,8 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(r#"<root tag="Unit"/>"#).unwrap();
-                    assert_eq!(data, Node::Unit);
+                    let data: NodeAttrs = from_str(r#"<root tag="Unit"/>"#).unwrap();
+                    assert_eq!(data, NodeAttrs::Unit);
                 }
             }
 
@@ -1041,8 +1152,12 @@ mod tests {
                 #[test]
                 #[ignore = "Prime cause: deserialize_any under the hood + https://github.com/serde-rs/serde/issues/1183"]
                 fn attributes() {
-                    let data: Node = from_str(r#"<root tag="Newtype" value="true"/>"#).unwrap();
-                    assert_eq!(data, Node::Newtype(NewtypeContent { value: true }));
+                    let data: NodeAttrs =
+                        from_str(r#"<root tag="Newtype" value="true"/>"#).unwrap();
+                    assert_eq!(
+                        data,
+                        NodeAttrs::Newtype(NewtypeContentAttrs { value: true })
+                    );
                 }
             }
 
@@ -1067,11 +1182,11 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node =
+                    let data: NodeAttrs =
                         from_str(r#"<root tag="Struct" float="42" string="answer"/>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Struct {
+                        NodeAttrs::Struct {
                             float: "42".into(),
                             string: "answer".into()
                         }
@@ -1099,14 +1214,14 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(
+                    let data: NodeAttrs = from_str(
                         r#"<root tag="Holder" string="answer"><nested float="42"/></root>"#,
                     )
                     .unwrap();
                     assert_eq!(
                         data,
-                        Node::Holder {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Holder {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -1133,12 +1248,12 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node =
+                    let data: NodeAttrs =
                         from_str(r#"<root tag="Flatten" float="42" string="answer"/>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Flatten {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Flatten {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -1172,15 +1287,42 @@ mod tests {
             }
 
             #[derive(Debug, Deserialize, PartialEq)]
-            struct Nested {
-                //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
-                float: String,
+            #[serde(tag = "@tag", content = "content")]
+            enum NodeAttrs {
+                Unit,
+                Newtype(bool),
+                //TODO: serde bug https://github.com/serde-rs/serde/issues/1904
+                // Tuple(f64, String),
+                Struct {
+                    #[serde(rename = "@float")]
+                    float: f64,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Holder {
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Flatten {
+                    #[serde(flatten)]
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
             }
 
             /// Workaround for serde bug https://github.com/serde-rs/serde/issues/1904
             #[derive(Debug, Deserialize, PartialEq)]
             #[serde(tag = "tag", content = "content")]
             enum Workaround {
+                Tuple(f64, String),
+            }
+
+            /// Workaround for serde bug https://github.com/serde-rs/serde/issues/1904
+            #[derive(Debug, Deserialize, PartialEq)]
+            #[serde(tag = "@tag", content = "content")]
+            enum WorkaroundAttrs {
                 Tuple(f64, String),
             }
 
@@ -1195,8 +1337,8 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(r#"<root tag="Unit"/>"#).unwrap();
-                    assert_eq!(data, Node::Unit);
+                    let data: NodeAttrs = from_str(r#"<root tag="Unit"/>"#).unwrap();
+                    assert_eq!(data, NodeAttrs::Unit);
                 }
             }
 
@@ -1213,8 +1355,9 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(r#"<root tag="Newtype" content="true"/>"#).unwrap();
-                    assert_eq!(data, Node::Newtype(true));
+                    let data: NodeAttrs =
+                        from_str(r#"<root tag="Newtype"><content>true</content></root>"#).unwrap();
+                    assert_eq!(data, NodeAttrs::Newtype(true));
                 }
             }
 
@@ -1231,11 +1374,11 @@ mod tests {
                 #[test]
                 #[ignore = "Prime cause: deserialize_any under the hood + https://github.com/serde-rs/serde/issues/1183"]
                 fn attributes() {
-                    let data: Workaround = from_str(
-                        r#"<root tag="Tuple" content="42"><content>answer</content></root>"#,
+                    let data: WorkaroundAttrs = from_str(
+                        r#"<root tag="Tuple"><content>42</content><content>answer</content></root>"#,
                     )
                     .unwrap();
-                    assert_eq!(data, Workaround::Tuple(42.0, "answer".into()));
+                    assert_eq!(data, WorkaroundAttrs::Tuple(42.0, "answer".into()));
                 }
             }
 
@@ -1258,13 +1401,13 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(
+                    let data: NodeAttrs = from_str(
                         r#"<root tag="Struct"><content float="42" string="answer"/></root>"#,
                     )
                     .unwrap();
                     assert_eq!(
                         data,
-                        Node::Struct {
+                        NodeAttrs::Struct {
                             float: 42.0,
                             string: "answer".into()
                         }
@@ -1300,13 +1443,13 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(
+                    let data: NodeAttrs = from_str(
                         r#"<root tag="Holder"><content string="answer"><nested float="42"/></content></root>"#
                     ).unwrap();
                     assert_eq!(
                         data,
-                        Node::Holder {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Holder {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -1333,14 +1476,14 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(
+                    let data: NodeAttrs = from_str(
                         r#"<root tag="Flatten"><content float="42" string="answer"/></root>"#,
                     )
                     .unwrap();
                     assert_eq!(
                         data,
-                        Node::Flatten {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Flatten {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -1375,17 +1518,39 @@ mod tests {
                 },
             }
 
-            #[derive(Debug, Deserialize, PartialEq)]
-            struct Nested {
-                //TODO: change to f64 after fixing https://github.com/serde-rs/serde/issues/1183
-                float: String,
-            }
-
             /// Workaround for serde bug https://github.com/serde-rs/serde/issues/1904
             #[derive(Debug, Deserialize, PartialEq)]
             #[serde(untagged)]
             enum Workaround {
                 Tuple(f64, String),
+            }
+
+            #[derive(Debug, Deserialize, PartialEq)]
+            #[serde(untagged)]
+            enum NodeAttrs {
+                Unit,
+                Newtype(bool),
+                // serde bug https://github.com/serde-rs/serde/issues/1904
+                // Tuple(f64, String),
+                Struct {
+                    #[serde(rename = "@float")]
+                    float: f64,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Holder {
+                    nested: NestedAttrs,
+                    #[serde(rename = "@string")]
+                    string: String,
+                },
+                Flatten {
+                    #[serde(flatten)]
+                    nested: NestedAttrs,
+                    // Can't use "string" as name because in that case this variant
+                    // will have no difference from `Struct` variant
+                    #[serde(rename = "@string2")]
+                    string2: String,
+                },
             }
 
             #[test]
@@ -1432,10 +1597,11 @@ mod tests {
                 #[test]
                 #[ignore = "Prime cause: deserialize_any under the hood + https://github.com/serde-rs/serde/issues/1183"]
                 fn attributes() {
-                    let data: Node = from_str(r#"<root float="42" string="answer"/>"#).unwrap();
+                    let data: NodeAttrs =
+                        from_str(r#"<root float="42" string="answer"/>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Struct {
+                        NodeAttrs::Struct {
                             float: 42.0,
                             string: "answer".into()
                         }
@@ -1464,12 +1630,12 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node =
+                    let data: NodeAttrs =
                         from_str(r#"<root string="answer"><nested float="42"/></root>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Holder {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Holder {
+                            nested: NestedAttrs { float: "42".into() },
                             string: "answer".into()
                         }
                     );
@@ -1496,11 +1662,12 @@ mod tests {
 
                 #[test]
                 fn attributes() {
-                    let data: Node = from_str(r#"<root float="42" string2="answer"/>"#).unwrap();
+                    let data: NodeAttrs =
+                        from_str(r#"<root float="42" string2="answer"/>"#).unwrap();
                     assert_eq!(
                         data,
-                        Node::Flatten {
-                            nested: Nested { float: "42".into() },
+                        NodeAttrs::Flatten {
+                            nested: NestedAttrs { float: "42".into() },
                             string2: "answer".into()
                         }
                     );

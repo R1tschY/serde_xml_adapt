@@ -9,6 +9,7 @@ use crate::{
     de::error::DeError,
     de::{escape::EscapedDeserializer, Deserializer, INNER_VALUE},
 };
+use std::vec;
 
 enum MapValue {
     Empty,
@@ -19,43 +20,35 @@ enum MapValue {
 
 /// A deserializer for `Attributes`
 pub(crate) struct MapAccess<'a, R: BufRead> {
-    /// Tag -- owner of attributes
-    _start: BytesStart<'static>,
     de: &'a mut Deserializer<R>,
-    attributes: Vec<(Vec<u8>, Vec<u8>)>,
-    attributes_pos: usize,
+    attributes: vec::IntoIter<(Vec<u8>, Vec<u8>)>,
     value: MapValue,
 }
 
 impl<'a, R: BufRead> MapAccess<'a, R> {
+    fn create_attr_key(key: &[u8]) -> Vec<u8> {
+        let mut result = Vec::with_capacity(key.len() + 1);
+        result.push(b'@');
+        result.extend_from_slice(key);
+        result
+    }
+
     /// Create a new MapAccess
-    pub fn new(de: &'a mut Deserializer<R>, start: BytesStart<'static>) -> Result<Self, DeError> {
+    pub fn new(de: &'a mut Deserializer<R>, start: &BytesStart<'static>) -> Result<Self, DeError> {
         // TODO: optimize copies!
         let attributes = start
             .attributes()
             .map(|a| {
                 let a = a?;
-                Ok((a.key.to_owned(), a.value.into_owned()))
+                Ok((Self::create_attr_key(a.key), a.value.into_owned()))
             })
-            .collect::<Result<Vec<(Vec<u8>, Vec<u8>)>, DeError>>()?;
+            .collect::<Result<Vec<(Vec<u8>, Vec<u8>)>, DeError>>()?
+            .into_iter();
         Ok(MapAccess {
             de,
-            _start: start,
             attributes,
-            attributes_pos: 0,
             value: MapValue::Empty,
         })
-    }
-
-    fn next_attr(&mut self) -> Option<(Vec<u8>, Vec<u8>)> {
-        // TODO: optimize copies!
-        if self.attributes_pos < self.attributes.len() {
-            let result = Some(self.attributes[self.attributes_pos].clone());
-            self.attributes_pos += 1;
-            result
-        } else {
-            None
-        }
     }
 }
 
@@ -66,14 +59,14 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Self::Error> {
-        let attr_key_val = self.next_attr();
-        let has_value_field = self.de.has_value_field;
-        if let Some((key, value)) = attr_key_val {
+        if let Some((key, value)) = self.attributes.next() {
             // try getting map from attributes (key= "value")
             self.value = MapValue::Attribute { value };
             seed.deserialize(EscapedDeserializer::new(key, false))
                 .map(Some)
         } else {
+            let has_value_field = self.de.has_value_field;
+
             // try getting from events (<key>value</key>)
             match self.de.peek()? {
                 Some(Event::Text(_)) => {
