@@ -236,7 +236,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, SerError> {
-        self.serialize_none()
+        Ok(())
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, SerError> {
@@ -963,7 +963,7 @@ mod tests {
         #[test]
         fn value_enum() {
             #[derive(Serialize)]
-            #[serde(rename_all = "lowercase")]
+            #[serde(rename_all = "lowercase", tag = "$value")]
             enum Enum {
                 One,
                 Two,
