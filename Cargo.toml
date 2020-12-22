@@ -1,9 +1,12 @@
 [package]
-name = "serde_xml_adapt"
-description = "Customizable serialisation for XML"
+name = "serde-explicit-xml"
+description = "XML serialization and deserialization with serde"
 version = "0.1.0"
-authors = ["R1tschY <r1tschy@posteo.de>"]
+authors = ["Richard Liebscher <r1tschy@posteo.de>"]
 edition = "2018"
+license = "MIT"
+categories = ["encoding", "parsing", "text-processing"]
+keywords = ["xml", "serialization", "serde"]
 
 [dependencies]
 serde = "1.0"
