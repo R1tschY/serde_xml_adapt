@@ -13,7 +13,7 @@
 //! extern crate quick_xml;
 //!
 //! use serde::Deserialize;
-//! use quick_xml::de::{from_str, DeError};
+//! use serde_explicit_xml::{from_str, Error};
 //!
 //! #[derive(Debug, Deserialize, PartialEq)]
 //! struct Link {
@@ -56,7 +56,7 @@
 //!     body: Body,
 //! }
 //!
-//! fn crates_io() -> Result<Html, DeError> {
+//! fn crates_io() -> Result<Html, Error> {
 //!     let xml = "<!DOCTYPE html>
 //!         <html lang=\"en\">
 //!           <head>
@@ -107,13 +107,12 @@
 //! }
 //! ```
 
-pub mod error;
 mod escape;
 mod map;
 mod seq;
 mod var;
 
-pub use crate::de::error::DeError;
+pub use crate::Error;
 use quick_xml::{
     events::{BytesStart, BytesText, Event},
     Reader,
@@ -132,12 +131,12 @@ pub struct Deserializer<R: BufRead> {
 }
 
 /// Deserialize a xml string
-pub fn from_str<T: DeserializeOwned>(s: &str) -> Result<T, DeError> {
+pub fn from_str<T: DeserializeOwned>(s: &str) -> Result<T, Error> {
     from_reader(s.as_bytes())
 }
 
 /// Deserialize from a reader
-pub fn from_reader<R: BufRead, T: DeserializeOwned>(reader: R) -> Result<T, DeError> {
+pub fn from_reader<R: BufRead, T: DeserializeOwned>(reader: R) -> Result<T, Error> {
     let mut de = Deserializer::from_reader(reader);
     T::deserialize(&mut de)
 }
@@ -162,14 +161,14 @@ impl<R: BufRead> Deserializer<R> {
         Self::new(reader)
     }
 
-    fn peek(&mut self) -> Result<Option<&Event<'static>>, DeError> {
+    fn peek(&mut self) -> Result<Option<&Event<'static>>, Error> {
         if self.peek.is_none() {
             self.peek = Some(self.next(&mut Vec::new())?);
         }
         Ok(self.peek.as_ref())
     }
 
-    fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> Result<Event<'static>, DeError> {
+    fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> Result<Event<'static>, Error> {
         if let Some(e) = self.peek.take() {
             return Ok(e);
         }
@@ -184,12 +183,12 @@ impl<R: BufRead> Deserializer<R> {
         }
     }
 
-    fn next_start(&mut self, buf: &mut Vec<u8>) -> Result<Option<BytesStart<'static>>, DeError> {
+    fn next_start(&mut self, buf: &mut Vec<u8>) -> Result<Option<BytesStart<'static>>, Error> {
         loop {
             let e = self.next(buf)?;
             match e {
                 Event::Start(e) => return Ok(Some(e)),
-                Event::End(_) => return Err(DeError::End),
+                Event::End(_) => return Err(Error::End),
                 Event::Eof => return Ok(None),
                 _ => buf.clear(), // ignore texts
             }
@@ -203,21 +202,21 @@ impl<R: BufRead> Deserializer<R> {
     /// |`<tag ...>text</tag>`|`text`     |Complete tag consumed       |
     /// |`<tag/>`             |empty slice|Virtual end tag not consumed|
     /// |`</tag>`             |empty slice|Not consumed                |
-    fn next_text<'a>(&mut self) -> Result<BytesText<'static>, DeError> {
+    fn next_text<'a>(&mut self) -> Result<BytesText<'static>, Error> {
         match self.next(&mut Vec::new())? {
             Event::Text(e) | Event::CData(e) => Ok(e),
-            Event::Eof => Err(DeError::Eof),
+            Event::Eof => Err(Error::Eof),
             Event::Start(e) => {
                 // allow one nested level
                 let inner = self.next(&mut Vec::new())?;
                 let t = match inner {
                     Event::Text(t) | Event::CData(t) => t,
-                    Event::Start(_) => return Err(DeError::Start),
+                    Event::Start(_) => return Err(Error::Start),
                     Event::End(end) if end.name() == e.name() => {
                         return Ok(BytesText::from_escaped(&[] as &[u8]));
                     }
-                    Event::End(_) => return Err(DeError::End),
-                    Event::Eof => return Err(DeError::Eof),
+                    Event::End(_) => return Err(Error::End),
+                    Event::Eof => return Err(Error::Eof),
                     _ => unreachable!(),
                 };
                 self.read_to_end(e.name())?;
@@ -231,7 +230,7 @@ impl<R: BufRead> Deserializer<R> {
         }
     }
 
-    fn read_to_end(&mut self, name: &[u8]) -> Result<(), DeError> {
+    fn read_to_end(&mut self, name: &[u8]) -> Result<(), Error> {
         let mut buf = Vec::new();
         match self.next(&mut buf)? {
             Event::Start(e) => self.reader.read_to_end(e.name(), &mut Vec::new())?,
@@ -244,7 +243,7 @@ impl<R: BufRead> Deserializer<R> {
 
 macro_rules! deserialize_type {
     ($deserialize:ident => $visit:ident) => {
-        fn $deserialize<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+        fn $deserialize<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
             let txt = self.next_text()?;
             let value = self.reader.decode(&*txt)?.parse()?;
             visitor.$visit(value)
@@ -253,14 +252,14 @@ macro_rules! deserialize_type {
 }
 
 impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
-    type Error = DeError;
+    type Error = Error;
 
     fn deserialize_struct<V: de::Visitor<'de>>(
         self,
         _name: &'static str,
         fields: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         if let Some(e) = self.next_start(&mut Vec::new())? {
             self.has_value_field = fields.contains(&INNER_VALUE);
             let map = map::MapAccess::new(self, &e)?;
@@ -269,7 +268,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
             self.read_to_end(&e.name())?;
             Ok(value)
         } else {
-            Err(DeError::Start)
+            Err(Error::Start)
         }
     }
 
@@ -289,44 +288,44 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         deserialize_type!(deserialize_u128 => visit_u128);
     }
 
-    fn deserialize_bool<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_bool<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         let txt = self.next_text()?;
         // only support XSD boolean values
         match txt.as_ref() {
             b"true" | b"1" => visitor.visit_bool(true),
             b"false" | b"0" => visitor.visit_bool(false),
-            e => Err(DeError::InvalidBoolean(self.reader.decode(e)?.into())),
+            e => Err(Error::InvalidBoolean(self.reader.decode(e)?.into())),
         }
     }
 
-    fn deserialize_string<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_string<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         let value = self.next_text()?.unescape_and_decode(&self.reader)?;
         visitor.visit_string(value)
     }
 
-    fn deserialize_char<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_char<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         self.deserialize_string(visitor)
     }
 
-    fn deserialize_str<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_str<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         self.deserialize_string(visitor)
     }
 
-    fn deserialize_bytes<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_bytes<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         // TODO: does it make sense? to get escaped content -> base64 or hex / error?
         let text = self.next_text()?;
         let value = text.escaped();
         visitor.visit_bytes(value)
     }
 
-    fn deserialize_unit<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_unit<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         let mut buf = Vec::new();
         match self.next(&mut buf)? {
             Event::Start(s) => {
                 self.read_to_end(s.name())?;
                 visitor.visit_unit()
             }
-            e => Err(DeError::InvalidUnit(format!("{:?}", e))),
+            e => Err(Error::InvalidUnit(format!("{:?}", e))),
         }
     }
 
@@ -334,7 +333,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         self,
         _name: &'static str,
         visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         self.deserialize_unit(visitor)
     }
 
@@ -342,7 +341,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         self,
         _name: &'static str,
         visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         // TODO: can be optimized
         self.deserialize_tuple(1, visitor)
     }
@@ -351,7 +350,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         self,
         len: usize,
         visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         visitor.visit_seq(seq::SeqAccess::new(self, Some(len))?)
     }
 
@@ -360,7 +359,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         _name: &'static str,
         len: usize,
         visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         self.deserialize_tuple(len, visitor)
     }
 
@@ -369,20 +368,20 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         _name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         let value = visitor.visit_enum(var::EnumAccess::new(self))?;
         Ok(value)
     }
 
-    fn deserialize_seq<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_seq<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         visitor.visit_seq(seq::SeqAccess::new(self, None)?)
     }
 
-    fn deserialize_map<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_map<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         self.deserialize_struct("", &[], visitor)
     }
 
-    fn deserialize_option<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_option<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         match self.peek()? {
             Some(Event::Text(t)) if t.is_empty() => visitor.visit_none(),
             None | Some(Event::Eof) => visitor.visit_none(),
@@ -390,21 +389,21 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         }
     }
 
-    fn deserialize_identifier<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_identifier<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         self.deserialize_string(visitor)
     }
 
-    fn deserialize_ignored_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
+    fn deserialize_ignored_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         match self.next(&mut Vec::new())? {
             Event::Start(e) => self.read_to_end(e.name())?,
-            Event::End(_) => return Err(DeError::End),
+            Event::End(_) => return Err(Error::End),
             _ => (),
         }
         visitor.visit_unit()
     }
 
-    fn deserialize_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
-        match self.peek()?.ok_or(DeError::Eof)? {
+    fn deserialize_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        match self.peek()?.ok_or(Error::Eof)? {
             Event::Start(_) => self.deserialize_map(visitor),
             Event::End(_) => self.deserialize_unit(visitor),
             _ => self.deserialize_string(visitor),

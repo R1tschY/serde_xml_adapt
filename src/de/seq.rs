@@ -1,8 +1,11 @@
-use crate::de::{DeError, Deserializer};
-use quick_xml::events::{BytesStart, Event};
-use serde::de;
 use std::io::BufRead;
 use std::str::from_utf8;
+
+use quick_xml::events::{BytesStart, Event};
+use serde::de;
+
+use crate::de::Deserializer;
+use crate::Error;
 
 #[derive(Debug)]
 enum Names {
@@ -11,7 +14,7 @@ enum Names {
 }
 
 impl Names {
-    fn is_valid(&self, start: &BytesStart) -> Result<bool, DeError> {
+    fn is_valid(&self, start: &BytesStart) -> Result<bool, Error> {
         let name = from_utf8(start.name())?;
         let res = match self {
             Names::Unknown => true,
@@ -30,7 +33,7 @@ pub struct SeqAccess<'a, R: BufRead> {
 
 impl<'a, R: BufRead> SeqAccess<'a, R> {
     /// Get a new SeqAccess
-    pub fn new(de: &'a mut Deserializer<R>, max_size: Option<usize>) -> Result<Self, DeError> {
+    pub fn new(de: &'a mut Deserializer<R>, max_size: Option<usize>) -> Result<Self, Error> {
         let decoder = de.reader.decoder();
         let names = if de.has_value_field {
             Names::Unknown
@@ -51,7 +54,7 @@ impl<'a, R: BufRead> SeqAccess<'a, R> {
 }
 
 impl<'de, 'a, R: 'a + BufRead> de::SeqAccess<'de> for SeqAccess<'a, R> {
-    type Error = DeError;
+    type Error = Error;
 
     fn size_hint(&self) -> Option<usize> {
         self.max_size
@@ -60,7 +63,7 @@ impl<'de, 'a, R: 'a + BufRead> de::SeqAccess<'de> for SeqAccess<'a, R> {
     fn next_element_seed<T: de::DeserializeSeed<'de>>(
         &mut self,
         seed: T,
-    ) -> Result<Option<T::Value>, DeError> {
+    ) -> Result<Option<T::Value>, Error> {
         if let Some(s) = self.max_size.as_mut() {
             if *s == 0 {
                 return Ok(None);

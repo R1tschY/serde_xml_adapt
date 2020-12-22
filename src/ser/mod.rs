@@ -9,23 +9,23 @@ use quick_xml::{
 use serde::ser::{self, Serialize};
 use serde::serde_if_integer128;
 
-use self::error::SerError;
+use crate::Error;
+
 use self::var::{Seq, Struct};
 
 mod attributes;
-pub mod error;
 mod nonser;
 mod var;
 
 /// Serialize struct into a `Write`r
-pub fn to_writer<W: Write, S: Serialize>(writer: W, value: &S) -> Result<(), SerError> {
+pub fn to_writer<W: Write, S: Serialize>(writer: W, value: &S) -> Result<(), Error> {
     let mut xml_writer = Writer::new(writer);
     let mut serializer = Serializer::new(&mut xml_writer);
     value.serialize(&mut serializer)
 }
 
 /// Serialize struct into a `String`
-pub fn to_string<S: Serialize>(value: &S) -> Result<String, SerError> {
+pub fn to_string<S: Serialize>(value: &S) -> Result<String, Error> {
     let mut writer = Vec::new();
     to_writer(&mut writer, value)?;
     let s = String::from_utf8(writer).map_err(|e| quick_xml::Error::Utf8(e.utf8_error()))?;
@@ -103,7 +103,7 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
         &mut self,
         value: P,
         escaped: bool,
-    ) -> Result<(), SerError> {
+    ) -> Result<(), Error> {
         let value = value.to_string().into_bytes();
         let event = if escaped {
             BytesText::from_escaped(value)
@@ -115,7 +115,7 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
     }
 
     /// Writes self-closed tag `<tag_name/>` into inner writer
-    fn write_self_closed(&mut self, tag_name: &str) -> Result<(), SerError> {
+    fn write_self_closed(&mut self, tag_name: &str) -> Result<(), Error> {
         self.writer
             .write_event(Event::Empty(BytesStart::borrowed_name(tag_name.as_bytes())))?;
         Ok(())
@@ -123,8 +123,8 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
 
     fn render_tag_around(
         &mut self,
-        f: impl FnOnce(&mut Writer<W>) -> Result<(), SerError>,
-    ) -> Result<(), SerError> {
+        f: impl FnOnce(&mut Writer<W>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         if let Some(root) = self.root_tag {
             self.write_tag_start(root)?;
             f(self.writer)?;
@@ -134,13 +134,13 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
         }
     }
 
-    fn write_tag_start(&mut self, tag: &str) -> Result<(), SerError> {
+    fn write_tag_start(&mut self, tag: &str) -> Result<(), Error> {
         Ok(self
             .writer
             .write_event(Event::Start(BytesStart::borrowed_name(tag.as_bytes())))?)
     }
 
-    fn write_tag_end(&mut self, tag: &str) -> Result<(), SerError> {
+    fn write_tag_end(&mut self, tag: &str) -> Result<(), Error> {
         Ok(self
             .writer
             .write_event(Event::End(BytesEnd::borrowed(tag.as_bytes())))?)
@@ -149,7 +149,7 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
 
 impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     type SerializeSeq = Seq<'r, 'w, 'a, W>;
     type SerializeTuple = Seq<'r, 'w, 'a, W>;
@@ -159,87 +159,87 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
     type SerializeStruct = Struct<'r, 'w, 'a, W>;
     type SerializeStructVariant = Struct<'r, 'w, 'a, W>;
 
-    fn serialize_bool(self, v: bool) -> Result<Self::Ok, SerError> {
+    fn serialize_bool(self, v: bool) -> Result<Self::Ok, Error> {
         self.write_primitive(if v { "true" } else { "false" }, true)
     }
 
-    fn serialize_i8(self, v: i8) -> Result<Self::Ok, SerError> {
+    fn serialize_i8(self, v: i8) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_i16(self, v: i16) -> Result<Self::Ok, SerError> {
+    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_i32(self, v: i32) -> Result<Self::Ok, SerError> {
+    fn serialize_i32(self, v: i32) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_i64(self, v: i64) -> Result<Self::Ok, SerError> {
+    fn serialize_i64(self, v: i64) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_u8(self, v: u8) -> Result<Self::Ok, SerError> {
+    fn serialize_u8(self, v: u8) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_u16(self, v: u16) -> Result<Self::Ok, SerError> {
+    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_u32(self, v: u32) -> Result<Self::Ok, SerError> {
+    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_u64(self, v: u64) -> Result<Self::Ok, SerError> {
+    fn serialize_u64(self, v: u64) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
     serde_if_integer128! {
-        fn serialize_i128(self, v: i128) -> Result<Self::Ok, SerError> {
+        fn serialize_i128(self, v: i128) -> Result<Self::Ok, Error> {
             self.write_primitive(v, true)
         }
 
-        fn serialize_u128(self, v: u128) -> Result<Self::Ok, SerError> {
+        fn serialize_u128(self, v: u128) -> Result<Self::Ok, Error> {
             self.write_primitive(v, true)
         }
     }
 
-    fn serialize_f32(self, v: f32) -> Result<Self::Ok, SerError> {
+    fn serialize_f32(self, v: f32) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_f64(self, v: f64) -> Result<Self::Ok, SerError> {
+    fn serialize_f64(self, v: f64) -> Result<Self::Ok, Error> {
         self.write_primitive(v, true)
     }
 
-    fn serialize_char(self, v: char) -> Result<Self::Ok, SerError> {
+    fn serialize_char(self, v: char) -> Result<Self::Ok, Error> {
         self.write_primitive(v, false)
     }
 
-    fn serialize_str(self, value: &str) -> Result<Self::Ok, SerError> {
+    fn serialize_str(self, value: &str) -> Result<Self::Ok, Error> {
         self.write_primitive(value, false)
     }
 
-    fn serialize_bytes(self, _value: &[u8]) -> Result<Self::Ok, SerError> {
+    fn serialize_bytes(self, _value: &[u8]) -> Result<Self::Ok, Error> {
         // TODO: I imagine you'd want to use base64 here.
         // Not sure how to roundtrip effectively though...
-        Err(SerError::Unsupported("serialize_bytes"))
+        Err(Error::Unsupported("serialize_bytes"))
     }
 
-    fn serialize_none(self) -> Result<Self::Ok, SerError> {
+    fn serialize_none(self) -> Result<Self::Ok, Error> {
         Ok(())
     }
 
-    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<Self::Ok, SerError> {
+    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<Self::Ok, Error> {
         value.serialize(self)
     }
 
-    fn serialize_unit(self) -> Result<Self::Ok, SerError> {
+    fn serialize_unit(self) -> Result<Self::Ok, Error> {
         Ok(())
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, SerError> {
+    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Error> {
         self.write_self_closed(self.root_tag.unwrap_or(name))
     }
 
@@ -248,7 +248,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-    ) -> Result<Self::Ok, SerError> {
+    ) -> Result<Self::Ok, Error> {
         self.render_tag_around(|writer| {
             writer.write_event(Event::Empty(BytesStart::borrowed_name(variant.as_bytes())))?;
             Ok(())
@@ -259,7 +259,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         self,
         _name: &'static str,
         value: &T,
-    ) -> Result<Self::Ok, SerError> {
+    ) -> Result<Self::Ok, Error> {
         value.serialize(self)
     }
 
@@ -269,18 +269,18 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         _variant_index: u32,
         variant: &'static str,
         value: &T,
-    ) -> Result<Self::Ok, SerError> {
+    ) -> Result<Self::Ok, Error> {
         self.render_tag_around(|writer| {
             let mut serializer = Serializer::new_with_root(writer, Some(variant));
             value.serialize(&mut serializer)
         })
     }
 
-    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, SerError> {
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Error> {
         Ok(Seq::new(self))
     }
 
-    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, SerError> {
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Error> {
         Ok(Seq::new(self))
     }
 
@@ -288,7 +288,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         self,
         _name: &'static str,
         _len: usize,
-    ) -> Result<Self::SerializeTupleStruct, SerError> {
+    ) -> Result<Self::SerializeTupleStruct, Error> {
         Ok(Seq::new(self))
     }
 
@@ -298,7 +298,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         _variant_index: u32,
         _variant: &'static str,
         _len: usize,
-    ) -> Result<Self::SerializeTupleVariant, SerError> {
+    ) -> Result<Self::SerializeTupleVariant, Error> {
         if let Some(root) = self.root_tag {
             self.write_tag_start(root)?;
         }
@@ -306,7 +306,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         Ok(Seq::new(self))
     }
 
-    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, SerError> {
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Error> {
         Ok(Struct::new(self, self.root_tag.unwrap()))
     }
 
@@ -314,7 +314,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         self,
         name: &'static str,
         _len: usize,
-    ) -> Result<Self::SerializeStruct, SerError> {
+    ) -> Result<Self::SerializeStruct, Error> {
         Ok(Struct::new(self, self.root_tag.unwrap_or(name)))
     }
 
@@ -324,7 +324,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
         _variant_index: u32,
         variant: &'static str,
         _len: usize,
-    ) -> Result<Self::SerializeStructVariant, SerError> {
+    ) -> Result<Self::SerializeStructVariant, Error> {
         if let Some(root) = self.root_tag {
             self.write_tag_start(root)?;
         }
@@ -341,10 +341,7 @@ mod tests {
 
     use super::*;
 
-    pub fn to_string_with_root<S: Serialize>(
-        value: &S,
-        root_tag: &str,
-    ) -> Result<String, SerError> {
+    pub fn to_string_with_root<S: Serialize>(value: &S, root_tag: &str) -> Result<String, Error> {
         let mut buffer = Vec::new();
         let mut xml_writer = Writer::new(&mut buffer);
         let mut serializer = Serializer::new_with_root(&mut xml_writer, Some(root_tag));

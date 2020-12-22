@@ -7,8 +7,8 @@ use quick_xml::{
 use serde::ser::{self, Serialize};
 
 use crate::ser::attributes::AttributeSerializer;
-use crate::ser::error::SerError;
 use crate::ser::Serializer;
+use crate::Error;
 
 /// An implementation of `SerializeStruct` for serializing to XML.
 pub struct Struct<'r, 'w, 'a, W>
@@ -40,18 +40,12 @@ where
         }
     }
 
-    fn serialize_tag<T: ?Sized + Serialize>(
-        &mut self,
-        key: &str,
-        value: &T,
-    ) -> Result<(), SerError> {
+    fn serialize_tag<T: ?Sized + Serialize>(&mut self, key: &str, value: &T) -> Result<(), Error> {
         // TODO: Inherit indentation state from self.parent.writer
 
         if key.starts_with("@") {
             if key.len() == 1 {
-                return Err(SerError::Custom(
-                    "name for attribute is missing".to_string(),
-                ));
+                return Err(Error::Custom("name for attribute is missing".to_string()));
             }
 
             let mut serializer = AttributeSerializer::new();
@@ -76,7 +70,7 @@ where
         Ok(())
     }
 
-    fn close(&mut self) -> Result<(), SerError> {
+    fn close(&mut self) -> Result<(), Error> {
         let writer = &mut self.parent.writer;
         if self.children.is_empty() {
             writer.write_event(Event::Empty(self.attrs.to_borrowed()))?;
@@ -94,17 +88,17 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     fn serialize_field<T: ?Sized + Serialize>(
         &mut self,
         key: &'static str,
         value: &T,
-    ) -> Result<(), SerError> {
+    ) -> Result<(), Error> {
         self.serialize_tag(key, value)
     }
 
-    fn end(mut self) -> Result<Self::Ok, SerError> {
+    fn end(mut self) -> Result<Self::Ok, Error> {
         self.close()
     }
 }
@@ -114,7 +108,7 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     #[inline]
     fn serialize_field<T: ?Sized + Serialize>(
@@ -142,15 +136,15 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
-    fn serialize_key<T: ?Sized + Serialize>(&mut self, _: &T) -> Result<(), SerError> {
-        Err(SerError::Unsupported(
+    fn serialize_key<T: ?Sized + Serialize>(&mut self, _: &T) -> Result<(), Error> {
+        Err(Error::Unsupported(
             "impossible to serialize the key on its own, please use serialize_entry()",
         ))
     }
 
-    fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), SerError> {
+    fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Error> {
         value.serialize(&mut *self.parent)
     }
 
@@ -158,19 +152,17 @@ where
         &mut self,
         key: &K,
         value: &V,
-    ) -> Result<(), SerError> {
+    ) -> Result<(), Error> {
         // TODO: use own TagSerializer
         let tag = key.serialize(&mut AttributeSerializer::new())?;
         if let Some(tag) = tag {
             self.serialize_tag(&tag, value)
         } else {
-            Err(SerError::Custom(
-                "Option as map key not supported".to_string(),
-            ))
+            Err(Error::Custom("Option as map key not supported".to_string()))
         }
     }
 
-    fn end(mut self) -> Result<Self::Ok, SerError> {
+    fn end(mut self) -> Result<Self::Ok, Error> {
         self.close()
     }
 }
@@ -193,7 +185,7 @@ where
         Seq { parent }
     }
 
-    fn serialize_item<T: ?Sized>(&mut self, value: &T) -> Result<(), SerError>
+    fn serialize_item<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
     where
         T: Serialize,
     {
@@ -206,7 +198,7 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -225,7 +217,7 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -245,7 +237,7 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     #[inline]
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -266,7 +258,7 @@ where
     W: 'w + Write,
 {
     type Ok = ();
-    type Error = SerError;
+    type Error = Error;
 
     #[inline]
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>

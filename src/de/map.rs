@@ -6,8 +6,8 @@ use quick_xml::events::{BytesStart, Event};
 use serde::de::{self, DeserializeSeed, IntoDeserializer};
 
 use crate::{
-    de::error::DeError,
     de::{escape::EscapedDeserializer, Deserializer, INNER_VALUE},
+    Error,
 };
 use std::vec;
 
@@ -34,7 +34,7 @@ impl<'a, R: BufRead> MapAccess<'a, R> {
     }
 
     /// Create a new MapAccess
-    pub fn new(de: &'a mut Deserializer<R>, start: &BytesStart<'static>) -> Result<Self, DeError> {
+    pub fn new(de: &'a mut Deserializer<R>, start: &BytesStart<'static>) -> Result<Self, Error> {
         // TODO: optimize copies!
         let attributes = start
             .attributes()
@@ -42,7 +42,7 @@ impl<'a, R: BufRead> MapAccess<'a, R> {
                 let a = a?;
                 Ok((Self::create_attr_key(a.key), a.value.into_owned()))
             })
-            .collect::<Result<Vec<(Vec<u8>, Vec<u8>)>, DeError>>()?
+            .collect::<Result<Vec<(Vec<u8>, Vec<u8>)>, Error>>()?
             .into_iter();
         Ok(MapAccess {
             de,
@@ -53,7 +53,7 @@ impl<'a, R: BufRead> MapAccess<'a, R> {
 }
 
 impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
-    type Error = DeError;
+    type Error = Error;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
@@ -113,7 +113,7 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
                 seed.deserialize(EscapedDeserializer::new(value, true))
             }
             MapValue::Nested | MapValue::InnerValue => seed.deserialize(&mut *self.de),
-            MapValue::Empty => Err(DeError::EndOfAttributes),
+            MapValue::Empty => Err(Error::EndOfAttributes),
         }
     }
 }

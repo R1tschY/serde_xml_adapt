@@ -4,11 +4,11 @@ use std::borrow::Cow;
 use std::str::from_utf8;
 
 use quick_xml::escape::unescape;
-use quick_xml::Error;
+use quick_xml::Error as XmlError;
 use serde::de::{self, Visitor};
 use serde::{self, forward_to_deserialize_any};
 
-use crate::de::DeError;
+use crate::Error;
 
 /// A deserializer for a xml escaped and encoded value
 ///
@@ -33,9 +33,9 @@ impl EscapedDeserializer {
         }
     }
 
-    fn unescaped(&self) -> Result<Cow<[u8]>, DeError> {
+    fn unescaped(&self) -> Result<Cow<[u8]>, Error> {
         if self.escaped {
-            unescape(&self.escaped_value).map_err(|e| DeError::Xml(Error::EscapeError(e)))
+            unescape(&self.escaped_value).map_err(|e| Error::Xml(XmlError::EscapeError(e)))
         } else {
             Ok(Cow::Borrowed(&self.escaped_value))
         }
@@ -55,7 +55,7 @@ macro_rules! deserialize_num {
 }
 
 impl<'de> serde::Deserializer<'de> for EscapedDeserializer {
-    type Error = DeError;
+    type Error = Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -75,7 +75,7 @@ impl<'de> serde::Deserializer<'de> for EscapedDeserializer {
             b"false" | b"0" | b"False" | b"FALSE" | b"f" | b"No" | b"NO" | b"no" | b"n" => {
                 visitor.visit_bool(false)
             }
-            e => Err(DeError::InvalidBoolean(from_utf8(e)?.into())),
+            e => Err(Error::InvalidBoolean(from_utf8(e)?.into())),
         }
     }
 
@@ -135,7 +135,7 @@ impl<'de> serde::Deserializer<'de> for EscapedDeserializer {
         if self.escaped_value.is_empty() {
             visitor.visit_unit()
         } else {
-            Err(DeError::InvalidUnit(
+            Err(Error::InvalidUnit(
                 "Expecting unit, got non empty attribute".into(),
             ))
         }
@@ -178,29 +178,23 @@ impl<'de> serde::Deserializer<'de> for EscapedDeserializer {
 }
 
 impl<'de> de::EnumAccess<'de> for EscapedDeserializer {
-    type Error = DeError;
+    type Error = Error;
     type Variant = Self;
 
-    fn variant_seed<V: de::DeserializeSeed<'de>>(
-        self,
-        seed: V,
-    ) -> Result<(V::Value, Self), DeError> {
+    fn variant_seed<V: de::DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self), Error> {
         let name = seed.deserialize(self.clone())?;
         Ok((name, self))
     }
 }
 
 impl<'de> de::VariantAccess<'de> for EscapedDeserializer {
-    type Error = DeError;
+    type Error = Error;
 
-    fn unit_variant(self) -> Result<(), DeError> {
+    fn unit_variant(self) -> Result<(), Error> {
         Ok(())
     }
 
-    fn newtype_variant_seed<T: de::DeserializeSeed<'de>>(
-        self,
-        seed: T,
-    ) -> Result<T::Value, DeError> {
+    fn newtype_variant_seed<T: de::DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value, Error> {
         seed.deserialize(self)
     }
 
@@ -208,7 +202,7 @@ impl<'de> de::VariantAccess<'de> for EscapedDeserializer {
         self,
         _len: usize,
         _visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         unimplemented!()
     }
 
@@ -216,7 +210,7 @@ impl<'de> de::VariantAccess<'de> for EscapedDeserializer {
         self,
         _fields: &'static [&'static str],
         _visitor: V,
-    ) -> Result<V::Value, DeError> {
+    ) -> Result<V::Value, Error> {
         unimplemented!()
     }
 }
