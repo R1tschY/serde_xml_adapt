@@ -25,6 +25,7 @@ It is therefore **not** a drop-in replacement for `quick-xml` or `serde-xml-rs`.
 Other differences:
 * `$value` works for serialisation
 * Only `true`, `false`, `1`, `0` accepted for boolean
+* Offset information for deserialization errors
 
 ## Examples
 
@@ -95,3 +96,6 @@ enum Enum {
 <root>one</root>
 ```
 
+## Roadmap
+
+* Panic free

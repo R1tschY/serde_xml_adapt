@@ -6,6 +6,7 @@ use quick_xml::{
 };
 use serde::ser::{self, Serialize};
 
+use crate::error::Reason;
 use crate::ser::attributes::AttributeSerializer;
 use crate::ser::Serializer;
 use crate::Error;
@@ -45,7 +46,9 @@ where
 
         if key.starts_with("@") {
             if key.len() == 1 {
-                return Err(Error::Custom("name for attribute is missing".to_string()));
+                return Err(self
+                    .parent
+                    .error(Reason::Message("name for attribute is missing".to_string())));
             }
 
             let mut serializer = AttributeSerializer::new();
@@ -139,9 +142,9 @@ where
     type Error = Error;
 
     fn serialize_key<T: ?Sized + Serialize>(&mut self, _: &T) -> Result<(), Error> {
-        Err(Error::Unsupported(
+        Err(self.parent.error(Reason::Unsupported(
             "impossible to serialize the key on its own, please use serialize_entry()",
-        ))
+        )))
     }
 
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Error> {
@@ -158,7 +161,9 @@ where
         if let Some(tag) = tag {
             self.serialize_tag(&tag, value)
         } else {
-            Err(Error::Custom("Option as map key not supported".to_string()))
+            Err(self.parent.error(Reason::Message(
+                "Option as map key not supported".to_string(),
+            )))
         }
     }
 

@@ -4,6 +4,7 @@ use quick_xml::events::Event;
 use serde::de::{self, Deserializer as SerdeDeserializer};
 
 use crate::de::{escape::EscapedDeserializer, Deserializer};
+use crate::error::Reason;
 use crate::Error;
 
 /// An enum access
@@ -28,8 +29,11 @@ impl<'de, 'a, R: 'a + BufRead> de::EnumAccess<'de> for EnumAccess<'a, R> {
         let de = match self.de.peek()? {
             Some(Event::Text(t)) => EscapedDeserializer::new(t.to_vec(), true),
             Some(Event::Start(e)) => EscapedDeserializer::new(e.name().to_vec(), false),
-            Some(e) => return Err(Error::InvalidEnum(e.to_owned())),
-            None => return Err(Error::Eof),
+            Some(e) => {
+                let event = e.to_owned();
+                return Err(self.de.peek_error(Reason::InvalidEnum(event)));
+            }
+            None => return Err(self.de.peek_error(Reason::Eof)),
         };
         let name = seed.deserialize(de)?;
         Ok((name, VariantAccess { de: self.de }))

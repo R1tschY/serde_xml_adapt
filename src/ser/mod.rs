@@ -12,6 +12,7 @@ use serde::serde_if_integer128;
 use crate::Error;
 
 use self::var::{Seq, Struct};
+use crate::error::Reason;
 
 mod attributes;
 mod nonser;
@@ -145,6 +146,11 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
             .writer
             .write_event(Event::End(BytesEnd::borrowed(tag.as_bytes())))?)
     }
+
+    fn error(&self, reason: Reason) -> Error {
+        // TODO: set offset
+        Error::new(reason, 0)
+    }
 }
 
 impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
@@ -224,7 +230,7 @@ impl<'r, 'a, 'w, W: Write> ser::Serializer for &'w mut Serializer<'r, 'a, W> {
     fn serialize_bytes(self, _value: &[u8]) -> Result<Self::Ok, Error> {
         // TODO: I imagine you'd want to use base64 here.
         // Not sure how to roundtrip effectively though...
-        Err(Error::Unsupported("serialize_bytes"))
+        Err(self.error(Reason::Unsupported("serialize_bytes")))
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Error> {

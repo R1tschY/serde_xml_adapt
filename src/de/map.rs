@@ -5,6 +5,7 @@ use std::io::BufRead;
 use quick_xml::events::{BytesStart, Event};
 use serde::de::{self, DeserializeSeed, IntoDeserializer};
 
+use crate::error::Reason;
 use crate::{
     de::{escape::EscapedDeserializer, Deserializer, INNER_VALUE},
     Error,
@@ -113,7 +114,7 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
                 seed.deserialize(EscapedDeserializer::new(value, true))
             }
             MapValue::Nested | MapValue::InnerValue => seed.deserialize(&mut *self.de),
-            MapValue::Empty => Err(Error::EndOfAttributes),
+            MapValue::Empty => Err(self.de.error(Reason::EndOfAttributes)),
         }
     }
 }

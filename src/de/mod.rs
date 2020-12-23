@@ -107,19 +107,24 @@
 //! }
 //! ```
 
+use std::io::BufRead;
+
+use quick_xml::{
+    events::{BytesStart, BytesText, Event},
+    Error as XmlError, Reader,
+};
+use serde::de::{self, DeserializeOwned, Visitor};
+use serde::serde_if_integer128;
+
+use crate::error::Reason;
+use crate::error::ResultExt;
+use crate::Error;
+use std::str::{from_utf8, Utf8Error};
+
 mod escape;
 mod map;
 mod seq;
 mod var;
-
-pub use crate::Error;
-use quick_xml::{
-    events::{BytesStart, BytesText, Event},
-    Reader,
-};
-use serde::de::{self, DeserializeOwned, Visitor};
-use serde::serde_if_integer128;
-use std::io::BufRead;
 
 const INNER_VALUE: &str = "$value";
 
@@ -188,7 +193,7 @@ impl<R: BufRead> Deserializer<R> {
             let e = self.next(buf)?;
             match e {
                 Event::Start(e) => return Ok(Some(e)),
-                Event::End(_) => return Err(Error::End),
+                Event::End(_) => return Err(self.error(Reason::End)),
                 Event::Eof => return Ok(None),
                 _ => buf.clear(), // ignore texts
             }
@@ -205,18 +210,18 @@ impl<R: BufRead> Deserializer<R> {
     fn next_text<'a>(&mut self) -> Result<BytesText<'static>, Error> {
         match self.next(&mut Vec::new())? {
             Event::Text(e) | Event::CData(e) => Ok(e),
-            Event::Eof => Err(Error::Eof),
+            Event::Eof => Err(self.error(Reason::Eof)),
             Event::Start(e) => {
                 // allow one nested level
                 let inner = self.next(&mut Vec::new())?;
                 let t = match inner {
                     Event::Text(t) | Event::CData(t) => t,
-                    Event::Start(_) => return Err(Error::Start),
+                    Event::Start(_) => return Err(self.error(Reason::Start)),
                     Event::End(end) if end.name() == e.name() => {
                         return Ok(BytesText::from_escaped(&[] as &[u8]));
                     }
-                    Event::End(_) => return Err(Error::End),
-                    Event::Eof => return Err(Error::Eof),
+                    Event::End(_) => return Err(self.error(Reason::End)),
+                    Event::Eof => return Err(self.error(Reason::Eof)),
                     _ => unreachable!(),
                 };
                 self.read_to_end(e.name())?;
@@ -239,13 +244,40 @@ impl<R: BufRead> Deserializer<R> {
         }
         Ok(self.reader.read_to_end(name, &mut buf)?)
     }
+
+    pub(crate) fn decode_utf8<'a>(
+        &self,
+        v: &'a [u8],
+        reason: Utf8Error,
+    ) -> crate::error::Result<&'a str> {
+        from_utf8(v).map_err(|err| {
+            let offset = self.reader.buffer_position() - v.len() + err.valid_up_to();
+            Error::new(Reason::Xml(XmlError::Utf8(reason)), offset)
+        })
+    }
+
+    pub(crate) fn error(&self, reason: Reason) -> Error {
+        Error::new(reason, self.reader.buffer_position())
+    }
+
+    pub(crate) fn peek_error(&self, reason: Reason) -> Error {
+        Error::new(reason, self.reader.buffer_position())
+    }
+
+    pub(crate) fn fix_position(&self, err: Error) -> Error {
+        err.fix_position(|reason| self.error(reason))
+    }
 }
 
 macro_rules! deserialize_type {
-    ($deserialize:ident => $visit:ident) => {
+    ($deserialize:ident => $ty:path, $visit:ident) => {
         fn $deserialize<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
             let txt = self.next_text()?;
-            let value = self.reader.decode(&*txt)?.parse()?;
+            let value = self
+                .reader
+                .decode(&*txt)?
+                .parse::<$ty>()
+                .at_offset(self.reader.buffer_position())?;
             visitor.$visit(value)
         }
     };
@@ -263,29 +295,31 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         if let Some(e) = self.next_start(&mut Vec::new())? {
             self.has_value_field = fields.contains(&INNER_VALUE);
             let map = map::MapAccess::new(self, &e)?;
-            let value = visitor.visit_map(map)?;
+            let value = visitor
+                .visit_map(map)
+                .map_err(|err| self.fix_position(err))?;
             self.has_value_field = false;
             self.read_to_end(&e.name())?;
             Ok(value)
         } else {
-            Err(Error::Start)
+            Err(self.error(Reason::Start))
         }
     }
 
-    deserialize_type!(deserialize_i8 => visit_i8);
-    deserialize_type!(deserialize_i16 => visit_i16);
-    deserialize_type!(deserialize_i32 => visit_i32);
-    deserialize_type!(deserialize_i64 => visit_i64);
-    deserialize_type!(deserialize_u8 => visit_u8);
-    deserialize_type!(deserialize_u16 => visit_u16);
-    deserialize_type!(deserialize_u32 => visit_u32);
-    deserialize_type!(deserialize_u64 => visit_u64);
-    deserialize_type!(deserialize_f32 => visit_f32);
-    deserialize_type!(deserialize_f64 => visit_f64);
+    deserialize_type!(deserialize_i8 => i8, visit_i8);
+    deserialize_type!(deserialize_i16 => i16, visit_i16);
+    deserialize_type!(deserialize_i32 => i32, visit_i32);
+    deserialize_type!(deserialize_i64 => i64, visit_i64);
+    deserialize_type!(deserialize_u8 => u8, visit_u8);
+    deserialize_type!(deserialize_u16 => u16, visit_u16);
+    deserialize_type!(deserialize_u32 => u32, visit_u32);
+    deserialize_type!(deserialize_u64 => u64, visit_u64);
+    deserialize_type!(deserialize_f32 => f32, visit_f32);
+    deserialize_type!(deserialize_f64 => f64, visit_f64);
 
     serde_if_integer128! {
-        deserialize_type!(deserialize_i128 => visit_i128);
-        deserialize_type!(deserialize_u128 => visit_u128);
+        deserialize_type!(deserialize_i128 => i128, visit_i128);
+        deserialize_type!(deserialize_u128 => u128, visit_u128);
     }
 
     fn deserialize_bool<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -294,13 +328,15 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         match txt.as_ref() {
             b"true" | b"1" => visitor.visit_bool(true),
             b"false" | b"0" => visitor.visit_bool(false),
-            e => Err(Error::InvalidBoolean(self.reader.decode(e)?.into())),
+            e => Err(self.error(Reason::InvalidBoolean(self.reader.decode(e)?.into()))),
         }
     }
 
     fn deserialize_string<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         let value = self.next_text()?.unescape_and_decode(&self.reader)?;
-        visitor.visit_string(value)
+        visitor
+            .visit_string(value)
+            .map_err(|err| self.fix_position(err))
     }
 
     fn deserialize_char<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -315,7 +351,9 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         // TODO: does it make sense? to get escaped content -> base64 or hex / error?
         let text = self.next_text()?;
         let value = text.escaped();
-        visitor.visit_bytes(value)
+        visitor
+            .visit_bytes(value)
+            .map_err(|err| self.fix_position(err))
     }
 
     fn deserialize_unit<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -323,9 +361,9 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         match self.next(&mut buf)? {
             Event::Start(s) => {
                 self.read_to_end(s.name())?;
-                visitor.visit_unit()
+                visitor.visit_unit().map_err(|err| self.fix_position(err))
             }
-            e => Err(Error::InvalidUnit(format!("{:?}", e))),
+            e => Err(self.error(Reason::InvalidUnit(format!("{:?}", e)))),
         }
     }
 
@@ -351,7 +389,9 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         len: usize,
         visitor: V,
     ) -> Result<V::Value, Error> {
-        visitor.visit_seq(seq::SeqAccess::new(self, Some(len))?)
+        visitor
+            .visit_seq(seq::SeqAccess::new(self, Some(len))?)
+            .map_err(|err| self.fix_position(err))
     }
 
     fn deserialize_tuple_struct<V: de::Visitor<'de>>(
@@ -369,12 +409,16 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Error> {
-        let value = visitor.visit_enum(var::EnumAccess::new(self))?;
+        let value = visitor
+            .visit_enum(var::EnumAccess::new(self))
+            .map_err(|err| self.fix_position(err))?;
         Ok(value)
     }
 
     fn deserialize_seq<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        visitor.visit_seq(seq::SeqAccess::new(self, None)?)
+        visitor
+            .visit_seq(seq::SeqAccess::new(self, None)?)
+            .map_err(|err| self.fix_position(err))
     }
 
     fn deserialize_map<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -396,17 +440,21 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
     fn deserialize_ignored_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         match self.next(&mut Vec::new())? {
             Event::Start(e) => self.read_to_end(e.name())?,
-            Event::End(_) => return Err(Error::End),
+            Event::End(_) => return Err(self.error(Reason::End)),
             _ => (),
         }
-        visitor.visit_unit()
+        visitor.visit_unit().map_err(|err| self.fix_position(err))
     }
 
     fn deserialize_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        match self.peek()?.ok_or(Error::Eof)? {
-            Event::Start(_) => self.deserialize_map(visitor),
-            Event::End(_) => self.deserialize_unit(visitor),
-            _ => self.deserialize_string(visitor),
+        if let Some(event) = self.peek()? {
+            match event {
+                Event::Start(_) => self.deserialize_map(visitor),
+                Event::End(_) => self.deserialize_unit(visitor),
+                _ => self.deserialize_string(visitor),
+            }
+        } else {
+            Err(self.peek_error(Reason::Eof))
         }
     }
 
@@ -420,8 +468,9 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_derive::Deserialize;
+
+    use super::*;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Item {
@@ -1361,6 +1410,7 @@ mod tests {
 
             mod tuple_struct {
                 use super::*;
+
                 #[test]
                 fn elements() {
                     let data: Workaround = from_str(

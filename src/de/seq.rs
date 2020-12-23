@@ -1,26 +1,25 @@
 use std::io::BufRead;
-use std::str::from_utf8;
+use std::str::{from_utf8, Utf8Error};
 
 use quick_xml::events::{BytesStart, Event};
 use serde::de;
 
 use crate::de::Deserializer;
+use crate::error::ResultExt;
 use crate::Error;
 
 #[derive(Debug)]
 enum Names {
     Unknown,
-    Peek(String),
+    Peek(Vec<u8>),
 }
 
 impl Names {
-    fn is_valid(&self, start: &BytesStart) -> Result<bool, Error> {
-        let name = from_utf8(start.name())?;
-        let res = match self {
+    fn is_valid(&self, start: &BytesStart) -> bool {
+        match self {
             Names::Unknown => true,
-            Names::Peek(n) => &**n == &*name,
-        };
-        Ok(res)
+            Names::Peek(n) => &**n == &*start.name(),
+        }
     }
 }
 
@@ -34,13 +33,11 @@ pub struct SeqAccess<'a, R: BufRead> {
 impl<'a, R: BufRead> SeqAccess<'a, R> {
     /// Get a new SeqAccess
     pub fn new(de: &'a mut Deserializer<R>, max_size: Option<usize>) -> Result<Self, Error> {
-        let decoder = de.reader.decoder();
         let names = if de.has_value_field {
             Names::Unknown
         } else {
             if let Some(Event::Start(e)) = de.peek()? {
-                let name = decoder.decode(e.name())?.to_owned();
-                Names::Peek(name)
+                Names::Peek(e.name().to_vec())
             } else {
                 Names::Unknown
             }
@@ -72,7 +69,7 @@ impl<'de, 'a, R: 'a + BufRead> de::SeqAccess<'de> for SeqAccess<'a, R> {
         }
         match self.de.peek()? {
             None | Some(Event::Eof) | Some(Event::End(_)) => Ok(None),
-            Some(Event::Start(e)) if !self.names.is_valid(e)? => Ok(None),
+            Some(Event::Start(e)) if !self.names.is_valid(e) => Ok(None),
             _ => seed.deserialize(&mut *self.de).map(Some),
         }
     }
