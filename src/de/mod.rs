@@ -468,7 +468,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
 
 #[cfg(test)]
 mod tests {
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     use super::*;
 
