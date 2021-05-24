@@ -1,6 +1,6 @@
 [package]
-name = "serde-explicit-xml"
-description = "XML serialization and deserialization with serde"
+name = "xserde"
+description = "Extended XML serialisation for serde"
 version = "0.1.0"
 authors = ["Richard Liebscher <r1tschy@posteo.de>"]
 edition = "2018"

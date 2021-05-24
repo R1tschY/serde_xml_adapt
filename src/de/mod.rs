@@ -13,7 +13,7 @@
 //! extern crate quick_xml;
 //!
 //! use serde::Deserialize;
-//! use serde_explicit_xml::{from_str, Error};
+//! use xserde::{from_str, Error};
 //!
 //! #[derive(Debug, Deserialize, PartialEq)]
 //! struct Link {

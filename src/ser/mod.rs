@@ -58,7 +58,7 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
     ///
     /// ```edition2018
     /// # use serde::Serialize;
-    /// use serde_xml_adapt::{Writer, Serializer};
+    /// use xserde::{Writer, Serializer};
     ///
     /// let mut buffer = Vec::new();
     /// let mut writer = Writer::new_with_indent(&mut buffer, b' ', 2);
@@ -73,7 +73,7 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
     ///
     /// ```edition2018
     /// # use serde::Serialize;
-    /// use serde_xml_adapt::{Writer, Serializer};
+    /// use xserde::{Writer, Serializer};
     ///
     /// #[derive(Debug, PartialEq, Serialize)]
     /// struct Struct {

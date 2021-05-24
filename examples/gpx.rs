@@ -208,7 +208,7 @@ fn main() {
     let arg = env::args().nth(1).expect("missing gpx argument");
 
     let reader = BufReader::new(fs::File::open(arg).unwrap());
-    let gpx: Gpx = match serde_explicit_xml::from_reader(reader) {
+    let gpx: Gpx = match xserde::from_reader(reader) {
         Err(err) => {
             println!("error: {}", err);
             return;
