@@ -1,11 +1,9 @@
 use std::io::BufRead;
-use std::str::{from_utf8, Utf8Error};
 
 use quick_xml::events::{BytesStart, Event};
 use serde::de;
 
 use crate::de::Deserializer;
-use crate::error::ResultExt;
 use crate::Error;
 
 #[derive(Debug)]
@@ -18,7 +16,7 @@ impl Names {
     fn is_valid(&self, start: &BytesStart) -> bool {
         match self {
             Names::Unknown => true,
-            Names::Peek(n) => &**n == &*start.name(),
+            Names::Peek(n) => **n == *start.name(),
         }
     }
 }
@@ -35,12 +33,10 @@ impl<'a, R: BufRead> SeqAccess<'a, R> {
     pub fn new(de: &'a mut Deserializer<R>, max_size: Option<usize>) -> Result<Self, Error> {
         let names = if de.has_value_field {
             Names::Unknown
+        } else if let Some(Event::Start(e)) = de.peek()? {
+            Names::Peek(e.name().to_vec())
         } else {
-            if let Some(Event::Start(e)) = de.peek()? {
-                Names::Peek(e.name().to_vec())
-            } else {
-                Names::Unknown
-            }
+            Names::Unknown
         };
         Ok(SeqAccess {
             de,

@@ -44,8 +44,8 @@ where
     fn serialize_tag<T: ?Sized + Serialize>(&mut self, key: &str, value: &T) -> Result<(), Error> {
         // TODO: Inherit indentation state from self.parent.writer
 
-        if key.starts_with("@") {
-            if key.len() == 1 {
+        if let Some(key) = key.strip_prefix('@') {
+            if key.is_empty() {
                 return Err(self
                     .parent
                     .error(Reason::Message("name for attribute is missing".to_string())));
@@ -54,12 +54,11 @@ where
             let mut serializer = AttributeSerializer::new();
             let attribute_value = value.serialize(&mut serializer)?;
             if let Some(attribute_value) = attribute_value {
-                self.attrs
-                    .push_attribute((&key[1..], &attribute_value as &str));
+                self.attrs.push_attribute((key, &attribute_value as &str));
             }
             self.buffer.clear();
         } else {
-            let root = if key.starts_with("$") {
+            let root = if key.starts_with('$') {
                 None
             } else {
                 Some(key)

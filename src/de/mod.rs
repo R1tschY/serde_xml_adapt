@@ -207,7 +207,7 @@ impl<R: BufRead> Deserializer<R> {
     /// |`<tag ...>text</tag>`|`text`     |Complete tag consumed       |
     /// |`<tag/>`             |empty slice|Virtual end tag not consumed|
     /// |`</tag>`             |empty slice|Not consumed                |
-    fn next_text<'a>(&mut self) -> Result<BytesText<'static>, Error> {
+    fn next_text(&mut self) -> Result<BytesText<'static>, Error> {
         match self.next(&mut Vec::new())? {
             Event::Text(e) | Event::CData(e) => Ok(e),
             Event::Eof => Err(self.error(Reason::Eof)),

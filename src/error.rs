@@ -1,10 +1,7 @@
+use std::fmt;
 use std::result::Result as StdResult;
-use std::str::Utf8Error;
-use std::{fmt, io};
 
-use crate::Deserializer;
 use quick_xml::Error as XmlError;
-use serde::Serializer;
 use std::num::{ParseFloatError, ParseIntError};
 
 /// Alias for a `Result` with the error type `serde_explicit_xml::Error`.
