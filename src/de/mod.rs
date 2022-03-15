@@ -324,10 +324,9 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
 
     fn deserialize_bool<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         let txt = self.next_text()?;
-        // only support XSD boolean values
         match txt.as_ref() {
-            b"true" | b"1" => visitor.visit_bool(true),
-            b"false" | b"0" => visitor.visit_bool(false),
+            b"true" | b"1" | b"yes" => visitor.visit_bool(true),
+            b"false" | b"0" | b"no" => visitor.visit_bool(false),
             e => Err(self.error(Reason::InvalidBoolean(self.reader.decode(e)?.into()))),
         }
     }
