@@ -3,8 +3,7 @@ use serde::ser::{
     SerializeTupleStruct, SerializeTupleVariant,
 };
 use serde::Serialize;
-
-use serde::export::PhantomData;
+use std::marker::PhantomData;
 
 pub struct NonSerializer<Ok, Err> {
     __non_constructable: (PhantomData<Ok>, PhantomData<Err>),
