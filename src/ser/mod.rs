@@ -9,7 +9,7 @@ use quick_xml::{
 use serde::ser::{self, Serialize};
 use serde::serde_if_integer128;
 
-use crate::Error;
+use crate::{Error, XmlVersion};
 
 use self::var::{Seq, Struct};
 use crate::error::Reason;
@@ -33,11 +33,38 @@ pub fn to_string<S: Serialize>(value: &S) -> Result<String, Error> {
     Ok(s)
 }
 
+/// Serialize struct as fragment into a `Write`r
+pub fn fragment_to_writer<W: Write, S: Serialize>(writer: W, value: &S) -> Result<(), Error> {
+    let mut xml_writer = Writer::new(writer);
+    let mut serializer = Serializer::new(&mut xml_writer).with_xmldecl(false);
+    value.serialize(&mut serializer)
+}
+
+/// Serialize struct as fragment into a `String`
+pub fn fragment_to_string<S: Serialize>(value: &S) -> Result<String, Error> {
+    let mut writer = Vec::new();
+    fragment_to_writer(&mut writer, value)?;
+    let s = String::from_utf8(writer).map_err(|e| quick_xml::Error::Utf8(e.utf8_error()))?;
+    Ok(s)
+}
+
 /// A Serializer
 pub struct Serializer<'r, 'a, W: Write> {
+    /// Writer
     pub(crate) writer: &'a mut Writer<W>,
-    /// Name of the root tag. If not specified, deduced from the structure name
-    root_tag: Option<&'r str>,
+
+    /// Name of the root tag.
+    ///
+    /// If `None` content is placed inline. For structures it is deduced from the structure name.
+    pub(crate) root_tag: Option<&'r str>,
+
+    /// XML version to use
+    pub(crate) version: XmlVersion,
+
+    /// not a document only a fragment
+    ///
+    /// Fragments do not have a XML Declaration
+    pub(crate) fragment: bool,
 }
 
 impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
@@ -93,11 +120,35 @@ impl<'r, 'a, W: Write> Serializer<'r, 'a, W> {
     /// }.serialize(&mut ser).unwrap();
     /// assert_eq!(
     ///     String::from_utf8(buffer.clone()).unwrap(),
-    ///     r#"<root question="The Ultimate Question of Life, the Universe, and Everything" answer="42"/>"#
+    ///     r#"<?xml version="1.0" encoding="UTF-8"?>
+    /// <root question="The Ultimate Question of Life, the Universe, and Everything" answer="42"/>"#
     /// );
     /// ```
     pub fn new_with_root(writer: &'a mut Writer<W>, root_tag: Option<&'r str>) -> Self {
-        Self { writer, root_tag }
+        Self {
+            writer,
+            root_tag,
+            version: XmlVersion::v1_0,
+            fragment: false,
+        }
+    }
+
+    pub fn with_xmldecl(self, write_xmldecl: bool) -> Self {
+        Self {
+            writer: self.writer,
+            root_tag: self.root_tag,
+            version: self.version,
+            fragment: write_xmldecl,
+        }
+    }
+
+    pub fn with_version(self, version: XmlVersion) -> Self {
+        Self {
+            writer: self.writer,
+            root_tag: self.root_tag,
+            version,
+            fragment: self.fragment,
+        }
     }
 
     fn write_primitive<P: std::fmt::Display>(
@@ -350,7 +401,8 @@ mod tests {
     pub fn to_string_with_root<S: Serialize>(value: &S, root_tag: &str) -> Result<String, Error> {
         let mut buffer = Vec::new();
         let mut xml_writer = Writer::new(&mut buffer);
-        let mut serializer = Serializer::new_with_root(&mut xml_writer, Some(root_tag));
+        let mut serializer =
+            Serializer::new_with_root(&mut xml_writer, Some(root_tag)).with_xmldecl(false);
         value.serialize(&mut serializer)?;
         let s = String::from_utf8(buffer).map_err(|e| quick_xml::Error::Utf8(e.utf8_error()))?;
         Ok(s)
@@ -401,7 +453,7 @@ mod tests {
             age: 42,
         };
         assert_eq!(
-            to_string(&bob).unwrap(),
+            fragment_to_string(&bob).unwrap(),
             "<PersonAttrs name=\"Bob\" age=\"42\"/>"
         );
     }
@@ -413,7 +465,7 @@ mod tests {
             age: 42,
         };
         assert_eq!(
-            to_string(&bob).unwrap(),
+            fragment_to_string(&bob).unwrap(),
             "<Person><name>Bob</name><age>42</age></Person>"
         );
     }
@@ -425,7 +477,7 @@ mod tests {
             age: 42,
         };
         assert_eq!(
-            to_string(&bob).unwrap(),
+            fragment_to_string(&bob).unwrap(),
             "<PersonAttrs name=\"&lt;?&lt;!-- &apos;&quot; --&gt;\" age=\"42\"/>"
         );
     }
@@ -434,7 +486,8 @@ mod tests {
     fn test_serialize_map_entries() {
         let mut buffer = Vec::new();
         let mut xml_writer = Writer::new(&mut buffer);
-        let mut serializer = Serializer::new_with_root(&mut xml_writer, Some("root"));
+        let mut serializer =
+            Serializer::new_with_root(&mut xml_writer, Some("root")).with_xmldecl(false);
 
         let mut map = serializer.serialize_map(Some(2)).unwrap();
         map.serialize_entry("name", "Bob").unwrap();

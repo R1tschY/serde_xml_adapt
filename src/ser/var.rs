@@ -10,6 +10,7 @@ use crate::error::Reason;
 use crate::ser::attributes::AttributeSerializer;
 use crate::ser::Serializer;
 use crate::Error;
+use quick_xml::events::BytesDecl;
 
 /// An implementation of `SerializeStruct` for serializing to XML.
 pub struct Struct<'r, 'w, 'a, W>
@@ -64,7 +65,7 @@ where
                 Some(key)
             };
             let mut writer = Writer::new(&mut self.buffer);
-            let mut serializer = Serializer::new_with_root(&mut writer, root);
+            let mut serializer = Serializer::new_with_root(&mut writer, root).with_xmldecl(false);
             value.serialize(&mut serializer)?;
 
             self.children.append(&mut self.buffer);
@@ -74,6 +75,15 @@ where
 
     fn close(&mut self) -> Result<(), Error> {
         let writer = &mut self.parent.writer;
+
+        if !self.parent.fragment {
+            writer.write_event(Event::Decl(BytesDecl::new(
+                self.parent.version.as_bytes(),
+                Some(b"UTF-8"), // TODO: make it configurable
+                None,
+            )))?;
+        }
+
         if self.children.is_empty() {
             writer.write_event(Event::Empty(self.attrs.to_borrowed()))?;
         } else {
